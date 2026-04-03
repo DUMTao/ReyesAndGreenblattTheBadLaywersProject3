@@ -62,6 +62,7 @@ public class FriendsFinder {
     }
 
     private static WorkerResult closestPairPoints(List<Point> pointsX, List<Point> pointsY){
+        //Lists for the y points and the Strip
         List<Point> leftYPoints = new ArrayList<>();
         List<Point> rightYPoints = new ArrayList<>();
         List<Point> distanceStrip = new ArrayList<>();
