@@ -14,6 +14,98 @@ public class FriendsFinder {
     //1. Failed 200,000 68/100
     public static List<Point> nearestFriends(List<Point> points){
         List<Point> nearestFriends = new ArrayList<>();
+        List<Point> pointsX = new ArrayList<>(points);
+        List<Point> pointsY = new ArrayList<>(points);
+
+        if (points == null || points.size() < 2){
+            return nearestFriends;
+        }
+
+        pointsX.sort(compareX);
+        pointsY.sort(compareY);
+
+        WorkerResult result = closestPairPoints(pointsX, pointsY);
+
+        nearestFriends.add(result.p1);
+        nearestFriends.add(result.p2);
+        return nearestFriends;
+
+    }
+
+    static Comparator<Point> compareX = new Comparator<Point>() {
+        public int compare(Point x1, Point x2) {
+            return Double.compare(x1.getX(), x2.getY());
+        }
+    };
+
+    static Comparator<Point> compareY = new Comparator<Point>() {
+        public int compare(Point y1, Point y2) {
+            return Double.compare(y1.getX(), y2.getY());
+        }
+    };
+
+    public static double distance(Point p1, Point p2) {
+        double d = Math.sqrt(Math.pow((p1.getX()-p2.getX()), 2) + Math.pow((p1.getY()-p2.getY()), 2));
+        return d;
+    }
+
+    static class WorkerResult {
+        double distance;
+        Point p1;
+        Point p2;
+
+        WorkerResult(double distance, Point p1, Point p2) {
+            this.distance = distance;
+            this.p1 = p1;
+            this.p2 = p2;
+        }
+    }
+
+    private static WorkerResult closestPairPoints(List<Point> pointsX, List<Point> pointsY){
+        List<Point> leftYPoints = new ArrayList<>();
+        List<Point> rightYPoints = new ArrayList<>();
+        List<Point> distanceStrip = new ArrayList<>();
+        int n = pointsX.size();
+
+        //If there's less than three nodes just brute force
+        if (n <= 3){
+            return bruteF(pointsX);
+        }
+
+        int mid = n / 2;
+        Point midP = pointsX.get(mid);
+
+        List<Point> leftXPoints = pointsX.subList(0,  mid);
+        List<Point> rightXPoints = pointsX.subList(mid, n);
+        for (Point point : pointsY){
+            if (point.getX() <= midP.getX()){
+                leftYPoints.add(point);
+            }
+            else {
+                rightYPoints.add(point);
+            }
+        }
+
+        //Yay recursion! Then get the shortest distance of the closest pairs
+        WorkerResult left = closestPairPoints(leftXPoints, leftYPoints);
+        WorkerResult right = closestPairPoints(leftXPoints, leftYPoints);
+
+        WorkerResult bestDistance = left.distance < right.distance ? left : right;
+        double delta = bestDistance.distance;
+
+        //Build distance strip
+        for (Point point : pointsY){
+            if (Math.abs(point.getX() - midP.getX()) < delta){
+                distanceStrip.add(point);
+            }
+        }
+        WorkerResult stripResult = stripBest(distanceStrip, delta);
+        return stripResult.distance < bestDistance.distance ? stripResult : bestDistance;
+
+    }
+
+    /* Failed @ 200,000 68/100
+    List<Point> nearestFriends = new ArrayList<>();
         List<Future<WorkerResult>> futures = new ArrayList<>();
         //result.add(points.get(0));
         //result.add(points.get(1));
@@ -38,14 +130,7 @@ public class FriendsFinder {
                     Point best2 = null;
 
                     for (int i = start; i < end; i++){
-                        //Divide and Conquer Algorithm Begins
-                        List<Point> sortX = new ArrayList<>();
-
-
-
-
-
-                        /*for (int j = i + 1; j < n; j++){
+                        for (int j = i + 1; j < n; j++){
                             double d = distance(points.get(i), points.get(j));
 
                             if (d < localMin){
@@ -53,7 +138,7 @@ public class FriendsFinder {
                                 best1 = points.get(i);
                                 best2 = points.get(j);
                             }
-                        }*/
+                        }
                     }
 
                     return new WorkerResult(localMin, best1, best2);
@@ -89,24 +174,7 @@ public class FriendsFinder {
         nearestFriends.add(final1);
         nearestFriends.add(final2);
         return nearestFriends;
-    }
-
-    public static double distance(Point p1, Point p2) {
-        double d = Math.sqrt(Math.pow((p1.getX()-p2.getX()), 2) + Math.pow((p1.getY()-p2.getY()), 2));
-        return d;
-    }
-
-    static class WorkerResult {
-        double distance;
-        Point p1;
-        Point p2;
-
-        WorkerResult(double distance, Point p1, Point p2) {
-            this.distance = distance;
-            this.p1 = p1;
-            this.p2 = p2;
-        }
-    }
+     */
 
     //Brute Force version that failed/timed out at size 40,000 62/100
     /*
