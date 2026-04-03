@@ -27,8 +27,9 @@ public class Speed {
         pointsX.sort(compareX);
         pointsY.sort(compareY);
 
+        ForkJoinPool pool = new ForkJoinPool();
         //Store the recursive result into the worker thread and save for later
-        WorkerResult result = closestPairPoints(pointsX, pointsY);
+        WorkerResult result = pool.invoke(new ClosestPairTask(pointsX, pointsY));
 
         //Returns the min distance pair of points
         nearestFriends.add(result.p1);
@@ -91,8 +92,9 @@ public class Speed {
         List<Point> rightXPoints = pointsX.subList(mid, n);
 
         //Iterate through the points to populate the left and right x points
+        Set<Point> leftSet = new HashSet<>(leftXPoints);
         for (Point point : pointsY){
-            if (point.getX() <= midP.getX()){
+            if (leftSet.contains(point)){
                 leftYPoints.add(point);
             }
             else {
@@ -101,8 +103,12 @@ public class Speed {
         }
 
         //Yay recursion! Then get the shortest distance of the closest pairs
-        WorkerResult left = closestPairPoints(leftXPoints, leftYPoints);
-        WorkerResult right = closestPairPoints(rightXPoints, rightYPoints);
+        ClosestPairTask leftTask = new ClosestPairTask(leftXPoints, leftYPoints);
+        ClosestPairTask rightTask = new ClosestPairTask(rightXPoints, rightYPoints);
+
+        leftTask.fork();
+        WorkerResult right = rightTask.compute();
+        WorkerResult left = leftTask.join();
 
         WorkerResult bestDistance = left.distance < right.distance ? left : right;
         double delta = bestDistance.distance;
@@ -118,6 +124,20 @@ public class Speed {
 
     }
 
+    static class ClosestPairTask extends RecursiveTask<WorkerResult>{
+        List<Point> pointsX;
+        List<Point> pointsY;
+
+        ClosestPairTask(List<Point> pointsX, List<Point> pointsY){
+            this.pointsX = pointsX;
+            this.pointsY = pointsY;
+        }
+
+        @Override
+        protected WorkerResult compute(){
+            return closestPairPoints(pointsX, pointsY);
+        }
+    }
     private static WorkerResult bruteF(List<Point> points) {
         double minDis = Double.MAX_VALUE;
         Point p1 = null;
@@ -153,11 +173,105 @@ public class Speed {
             }
         }
 
-        if (p1 == null) {
+        if (p1 == null){
             return new WorkerResult(delta, null, null);
         }
-        return new WorkerResult(minDis, p1, p2);
+        return  new WorkerResult(minDis, p1, p2);
     }
 
-}
+    /* Failed @ 200,000 68/100
+    List<Point> nearestFriends = new ArrayList<>();
+        List<Future<WorkerResult>> futures = new ArrayList<>();
+        //result.add(points.get(0));
+        //result.add(points.get(1));
+        if (points == null || points.size() < 2){
+            return nearestFriends;
+        }
 
+        int n = points.size();
+        int numThreads = 16;
+        int chunkSize = (n + numThreads - 1) / numThreads;
+
+        double minDistance = distance(points.get(0), points.get(1));
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+
+        for (int t = 0; t < numThreads; t++){
+            int start = t * chunkSize;
+            int end = Math.min(start + chunkSize, n - 1);
+
+            Future<WorkerResult> future = executor.submit(() -> {
+                    double localMin = Double.MAX_VALUE;
+                    Point best1 = null;
+                    Point best2 = null;
+
+                    for (int i = start; i < end; i++){
+                        for (int j = i + 1; j < n; j++){
+                            double d = distance(points.get(i), points.get(j));
+
+                            if (d < localMin){
+                                localMin = d;
+                                best1 = points.get(i);
+                                best2 = points.get(j);
+                            }
+                        }
+                    }
+
+                    return new WorkerResult(localMin, best1, best2);
+            });
+
+            futures.add(future);
+        }
+
+
+        double minDist = Double.MAX_VALUE;
+        Point final1  = null;
+        Point final2 = null;
+
+        for (Future<WorkerResult> future : futures){
+            WorkerResult r = null; //Waits if necessary
+            try {
+                r = future.get();
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            } catch (ExecutionException e) {
+                throw new RuntimeException(e);
+            }
+
+            if (r.distance < minDist){
+                 minDist = r.distance;
+                 final1 = r.p1;
+                 final2 = r.p2;
+            }
+        }
+
+        executor.shutdown();
+
+        nearestFriends.add(final1);
+        nearestFriends.add(final2);
+        return nearestFriends;
+     */
+
+    //Brute Force version that failed/timed out at size 40,000 62/100
+    /*
+    public static List<Point> nearestFriends(List<Point> points) {
+        List<Point> result = new ArrayList<>();
+        result.add(points.get(0));
+        result.add(points.get(1));
+        double minDistance = distance(points.get(0), points.get(1));
+        for (int i = 0; i < points.size() - 1; i++) {
+            for (int j = i + 1; j < points.size(); j++) {
+                double distance = distance(points.get(i), points.get(j));
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    result.clear();
+                    result.add(points.get(i));
+                    result.add(points.get(j));
+                }
+            }
+        }
+
+        return result;
+    }
+     */
+
+}
