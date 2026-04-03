@@ -62,7 +62,6 @@ public class FriendsFinder {
     }
 
     private static WorkerResult closestPairPoints(List<Point> pointsX, List<Point> pointsY){
-        //Lists for the y points and the Strip
         List<Point> leftYPoints = new ArrayList<>();
         List<Point> rightYPoints = new ArrayList<>();
         List<Point> distanceStrip = new ArrayList<>();
@@ -103,6 +102,46 @@ public class FriendsFinder {
         WorkerResult stripResult = stripBest(distanceStrip, delta);
         return stripResult.distance < bestDistance.distance ? stripResult : bestDistance;
 
+    }
+
+    private static double bruteF(List<Point> points) {
+        double minDis = double.MAX_VALUE;
+        Point p1 = null;
+        Point p2 = null;
+
+        for (int i = 0; i < points.size(); i++) {
+            for (int j = i + 1; j < points.size(); j++) {
+                double d = distance(points.get(i), points.get(j));
+                if (d < minDis) {
+                    minDis = d;
+                    p1 = points.get(i);
+                    p2 = points.get(j);
+                }
+            }
+        }
+    }
+
+    private static WorkerResult stripBest(List<Point> strip, double delta) {
+        double minDis = delta;
+        Point p1 = null;
+        Point p2 = null;
+        strip.sort(compareY);
+
+        for (int i = 0; i < strip.size(); i++) {
+            for (int j = i + 1; j < strip.size() && (strip.get(j).getY() - strip.get(i).getY()) < minDis; j++) {
+                double dis = distance(strip.get(i), strip.get(j));
+                if (dis < minDis) {
+                    minDis = dis;
+                    p1 = strip.get(i);
+                    p2 = strip.get(j);
+                }
+            }
+        }
+
+        if (p1 == null){
+            return new WorkerResult(delta, null, null);
+        }
+        return  new WorkerResult(minDis, p1, p2);
     }
 
     /* Failed @ 200,000 68/100
