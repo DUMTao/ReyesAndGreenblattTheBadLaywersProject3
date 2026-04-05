@@ -11,12 +11,13 @@ public class FriendsFinder {
         return "Kamil Reyes and Matt Greenblatt";
     }
 
+    private static final int SEQUENTIAL_THRESHOLD = 2000;
     //1. Failed 4 Million 78/100
     public static List<Point> nearestFriends(List<Point> points){
-        //Creating the lists for the result of nearest friends and the points
+        //Creating the list and the arrays for the result of nearest friends and the points
         List<Point> nearestFriends = new ArrayList<>();
-        List<Point> pointsX = new ArrayList<>(points);
-        List<Point> pointsY = new ArrayList<>(points);
+        Point[] pointsX = points.toArray(new Point[0]);
+        Point[] pointsY = points.toArray(new Point[0]);
 
         //Base case: If there's no points or there's only 2 then the distance is the min by default
         if (points == null || points.size() < 2){
@@ -24,13 +25,11 @@ public class FriendsFinder {
         }
 
         //Sort the points by comparing their distances
-        pointsX.sort(compareX);
-        pointsY.sort(compareY);
+        Arrays.sort(pointsX, compareX);
+        Arrays.sort(pointsY, compareY);
 
-        //Create the pool for the threads
-        ForkJoinPool pool = new ForkJoinPool();
-        //Store the recursive result from the pool into the worker thread and save for later
-        WorkerResult result = pool.invoke(new ClosestPairTask(pointsX, pointsY));
+        //Creates a parallel task, runs it using the thread pool and stores the result
+        WorkerResult result = ForkJoinPool.commonPool().invoke(new ClosestPairTask(pointsX, pointsY, 0, pointsX.length));
 
         //Returns the min distance pair of points
         nearestFriends.add(result.p1);
@@ -72,103 +71,130 @@ public class FriendsFinder {
         }
     }
 
-    private static WorkerResult closestPairPoints(List<Point> pointsX, List<Point> pointsY){
-        List<Point> leftYPoints = new ArrayList<>();
-        List<Point> rightYPoints = new ArrayList<>();
-        List<Point> distanceStrip = new ArrayList<>();
-        int n = pointsX.size(); //Get how many points are within the x list
+    private static WorkerResult closestPairPoints(Point[] pointsX, Point[] pointsY, int low, int high){
+        int n = high - low;
 
-        //If there's less than three nodes just brute force
-        if (n <= 3){
-            return bruteF(pointsX);
+        if (n <= 3) {
+            return bruteF(pointsX, low, high);
         }
 
-        //Since there's more than 3 nodes, get the midpoint of the "graph" by the half of pointsX
-        int mid = n / 2;
-        Point midP = pointsX.get(mid);
+        int mid = low + n/2;
+        Point midPoint = pointsX[mid];
+        double midPointX = midPoint.getX();
 
-        //Separate and Create the lists of the x points on the left and right sides based on the midpoint
-        List<Point> leftXPoints = pointsX.subList(0,  mid);
-        List<Point> rightXPoints = pointsX.subList(mid, n);
+        int leftCount = mid - low;
+        Point[] leftY = new Point[leftCount];
+        Point[] rightY = new Point[n - leftCount];
+        int leftIndex = 0;
+        int rightIndex = 0;
+        int tiesForLeft = 0;
 
-        //Create hashset for the points at X for faster return of information and build the Y points life
-        Set<Point> leftSet = new HashSet<>(leftXPoints);
-        for (Point point : pointsY){
-            if (leftSet.contains(point)){
-                leftYPoints.add(point);
+        for (int i = low; i < mid; i++) {
+            if (pointsX[i].getX() == midPointX) {
+                tiesForLeft++;
+            }
+        }
+
+        int tiesUsed = 0;
+
+        for (int i = 0; i < pointsY.length; i++) {
+            double px = pointsY[i].getX();
+            if (px < midPointX) {
+                leftY[leftIndex++] = pointsY[i];
+            }
+            else if (px > midPointX) {
+                rightY[rightIndex++] = pointsY[i];
             }
             else {
-                rightYPoints.add(point);
+                if (tiesUsed < tiesForLeft) {
+                    leftY[leftIndex++] = pointsY[i];
+                    tiesUsed++;
+                }
+                else {
+                    rightY[rightIndex++] = pointsY[i];
+                }
             }
         }
 
-        //Yay recursion! Then get the shortest distance of the closest pairs
-        ClosestPairTask leftTask = new ClosestPairTask(leftXPoints, leftYPoints);
-        ClosestPairTask rightTask = new ClosestPairTask(rightXPoints, rightYPoints);
+        WorkerResult left;
+        WorkerResult right;
 
-        leftTask.fork(); //Schedules to run the left half asynchronous "run if there's an available one"
-        WorkerResult right = rightTask.compute(); //Compute right half on the current thread in parallel
-        WorkerResult left = leftTask.join(); //Waits for left half to finish to store the result
+        if (n > SEQUENTIAL_THRESHOLD) {
+            ClosestPairTask leftTask = new ClosestPairTask(pointsX, leftY, low, mid);
+            ClosestPairTask rightTask = new ClosestPairTask(pointsX, rightY, mid, high);
+            leftTask.fork();
+            right = rightTask.compute();
+            left = leftTask.join();
+        }
+        else {
+            left = closestPairPoints(pointsX, leftY, low, mid);
+            right =  closestPairPoints(pointsX, rightY, mid, high);
+        }
 
-        //Calculates the best distance found on either respective side
-        WorkerResult bestDistance = left.distance < right.distance ? left : right;
-        double delta = bestDistance.distance;
+        WorkerResult best = left.distance < right.distance ? left : right;
+        double delta = best.distance;
+        double deltaSquared = delta * delta;
 
-        //Build distance strip
-        for (Point point : pointsY){
-            if (Math.abs(point.getX() - midP.getX()) < delta){
-                distanceStrip.add(point);
+        Point[] strip = new Point[pointsY.length];
+        int stripSize = 0;
+        for (int i = 0; i < pointsY.length; i++) {
+            double dx =  pointsY[i].getX() - midPointX;
+            if (dx * dx < deltaSquared) {
+                strip[stripSize++] = pointsY[i];
             }
         }
 
-        //Stores the best strip result from the sub halfs and returns the result if there's a distance smaller than the best distance
-        WorkerResult stripResult = stripBest(distanceStrip, delta);
-        return stripResult.distance < bestDistance.distance ? stripResult : bestDistance;
+        WorkerResult stripResult = stripBest(strip, stripSize, delta);
+        return stripResult.distance < best.distance ? stripResult : best;
 
     }
 
     static class ClosestPairTask extends RecursiveTask<WorkerResult>{
         //Create a list to sort the points by X and Y for the subproblem
-        List<Point> pointsX;
-        List<Point> pointsY;
+        Point[] pointsX;
+        Point[] pointsY;
+        int low;
+        int high;
 
         //Constructor for information storing
-        ClosestPairTask(List<Point> pointsX, List<Point> pointsY){
+        ClosestPairTask(Point[] pointsX, Point[] pointsY, int low, int high){
             this.pointsX = pointsX;
             this.pointsY = pointsY;
+            this.low = low;
+            this.high = high;
         }
 
         //Call the ForkJoinPool to handle the parallelization of the recursion
         @Override
         protected WorkerResult compute(){
-            return closestPairPoints(pointsX, pointsY);
+            return closestPairPoints(pointsX, pointsY, low, high);
         }
     }
     /*
         This is the Brute Force method for when the sub halfs have 3 or less points to compute
         Not paralellized because it doesn't need to for a small sample size so it works perfectly for a base case of DnC recursion
      */
-    private static WorkerResult bruteF(List<Point> points) {
+    private static WorkerResult bruteF(Point[] points, int low, int high) {
         //Create and Store the smallest distance found and both closest pair points
-        double minDis = Double.MAX_VALUE;
+        double minDisSq = Double.MAX_VALUE;
         Point p1 = null;
         Point p2 = null;
 
         //Compare every pair of points in the sub half
-        for (int i = 0; i < points.size(); i++) {
-            for (int j = i + 1; j < points.size(); j++) {
+        for (int i = low; i < high; i++) {
+            for (int j = i + 1; j < high; j++) {
                 //Get the distance between the points
-                double d = distance(points.get(i), points.get(j));
+                double dSq = Math.pow(distance(points[i], points[j]), 2);
                 //Update the minimum if found pair is closer than last
-                if (d < minDis) {
-                    minDis = d;
-                    p1 = points.get(i);
-                    p2 = points.get(j);
+                if (dSq < minDisSq) {
+                    minDisSq = dSq;
+                    p1 = points[i];
+                    p2 = points[j];
                 }
             }
         }
         //Return the closest pair found in the sub half
-        return new WorkerResult(minDis, p1, p2);
+        return new WorkerResult(Math.sqrt(minDisSq), p1, p2);
     }
 
     /*
@@ -176,22 +202,22 @@ public class FriendsFinder {
         that might be closer than previously found.
         The only has the points that their x from the midpoint is less than delta and then sorted by Y to search the distances of 7 neighbors at max.
      */
-    private static WorkerResult stripBest(List<Point> strip, double delta) {
+    private static WorkerResult stripBest(Point[] strip, int size, double delta) {
         double minDis = delta; //Store the best distance from the left and right halves
         Point p1 = null;
         Point p2 = null;
-        strip.sort(compareY);
+
 
         //For each point found in the strip, compare with the y distance less than the stored minimum to reduce comparisons
-        for (int i = 0; i < strip.size(); i++) {
-            for (int j = i + 1; j < strip.size() && (strip.get(j).getY() - strip.get(i).getY()) < minDis; j++) {
+        for (int i = 0; i < size; i++) {
+            for (int j = i + 1; j < size && (strip[j].getY() - strip[i].getY()) < minDis; j++) {
                 //Store the distance between the two points
-                double dis = distance(strip.get(i), strip.get(j));
+                double dis = distance(strip[i], strip[j]);
                 //Update this minimum if the strip pair is closer than the minimum
                 if (dis < minDis) {
                     minDis = dis;
-                    p1 = strip.get(i);
-                    p2 = strip.get(j);
+                    p1 = strip[i];
+                    p2 = strip[j];
                 }
             }
         }
@@ -204,6 +230,7 @@ public class FriendsFinder {
         //Else, return the new closest pair
         return  new WorkerResult(minDis, p1, p2);
     }
+
 
     /* Failed @ 200,000 68/100
     List<Point> nearestFriends = new ArrayList<>();
