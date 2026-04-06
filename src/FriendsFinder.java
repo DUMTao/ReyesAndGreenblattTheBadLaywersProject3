@@ -5,31 +5,34 @@ import java.util.concurrent.*;
 public class FriendsFinder {
     /**
      * Returns the authors' names.
-     * @return  The names of the authors of this file.
+     *
+     * @return The names of the authors of this file.
      */
     public static String getAuthors() {
         return "Kamil Reyes and Matt Greenblatt";
     }
 
-    private static final int SEQUENTIAL_THRESHOLD = 2000;
+
     //1. Failed 4 Million 78/100
-    public static List<Point> nearestFriends(List<Point> points){
-        //Creating the list and the arrays for the result of nearest friends and the points
+    public static List<Point> nearestFriends(List<Point> points) {
+        //Creating the lists for the result of nearest friends and the points
         List<Point> nearestFriends = new ArrayList<>();
-        Point[] pointsX = points.toArray(new Point[0]);
-        Point[] pointsY = points.toArray(new Point[0]);
+        List<Point> pointsX = new ArrayList<>(points);
+        List<Point> pointsY = new ArrayList<>(points);
 
         //Base case: If there's no points or there's only 2 then the distance is the min by default
-        if (points == null || points.size() < 2){
+        if (points == null || points.size() < 2) {
             return nearestFriends;
         }
 
         //Sort the points by comparing their distances
-        Arrays.sort(pointsX, compareX);
-        Arrays.sort(pointsY, compareY);
+        pointsX.sort(compareX);
+        pointsY.sort(compareY);
 
-        //Creates a parallel task, runs it using the thread pool and stores the result
-        WorkerResult result = ForkJoinPool.commonPool().invoke(new ClosestPairTask(pointsX, pointsY, 0, pointsX.length));
+        //Create the pool for the threads
+        ForkJoinPool pool = new ForkJoinPool();
+        //Store the recursive result from the pool into the worker thread and save for later
+        SpeedFaster.WorkerResult result = pool.invoke(new SpeedFaster.ClosestPairTask(pointsX, pointsY));
 
         //Returns the min distance pair of points
         nearestFriends.add(result.p1);
@@ -54,7 +57,7 @@ public class FriendsFinder {
 
     //Regular distance formula
     public static double distance(Point p1, Point p2) {
-        double d = Math.sqrt(Math.pow((p1.getX()-p2.getX()), 2) + Math.pow((p1.getY()-p2.getY()), 2));
+        double d = Math.sqrt(Math.pow((p1.getX() - p2.getX()), 2) + Math.pow((p1.getY() - p2.getY()), 2));
         return d;
     }
 
@@ -71,130 +74,103 @@ public class FriendsFinder {
         }
     }
 
-    private static WorkerResult closestPairPoints(Point[] pointsX, Point[] pointsY, int low, int high){
-        int n = high - low;
+    private static SpeedFaster.WorkerResult closestPairPoints(List<Point> pointsX, List<Point> pointsY) {
+        List<Point> leftYPoints = new ArrayList<>();
+        List<Point> rightYPoints = new ArrayList<>();
+        List<Point> distanceStrip = new ArrayList<>();
+        int n = pointsX.size(); //Get how many points are within the x list
 
+        //If there's less than three nodes just brute force
         if (n <= 3) {
-            return bruteF(pointsX, low, high);
+            return bruteF(pointsX);
         }
 
-        int mid = low + n/2;
-        Point midPoint = pointsX[mid];
-        double midPointX = midPoint.getX();
+        //Since there's more than 3 nodes, get the midpoint of the "graph" by the half of pointsX
+        int mid = n / 2;
+        Point midP = pointsX.get(mid);
 
-        int leftCount = mid - low;
-        Point[] leftY = new Point[leftCount];
-        Point[] rightY = new Point[n - leftCount];
-        int leftIndex = 0;
-        int rightIndex = 0;
-        int tiesForLeft = 0;
+        //Separate and Create the lists of the x points on the left and right sides based on the midpoint
+        List<Point> leftXPoints = pointsX.subList(0, mid);
+        List<Point> rightXPoints = pointsX.subList(mid, n);
 
-        for (int i = low; i < mid; i++) {
-            if (pointsX[i].getX() == midPointX) {
-                tiesForLeft++;
+        //Create hashset for the points at X for faster return of information and build the Y points life
+        Set<Point> leftSet = new HashSet<>(leftXPoints);
+        for (Point point : pointsY) {
+            if (leftSet.contains(point)) {
+                leftYPoints.add(point);
+            } else {
+                rightYPoints.add(point);
             }
         }
 
-        int tiesUsed = 0;
+        //Yay recursion! Then get the shortest distance of the closest pairs
+        SpeedFaster.ClosestPairTask leftTask = new SpeedFaster.ClosestPairTask(leftXPoints, leftYPoints);
+        SpeedFaster.ClosestPairTask rightTask = new SpeedFaster.ClosestPairTask(rightXPoints, rightYPoints);
 
-        for (int i = 0; i < pointsY.length; i++) {
-            double px = pointsY[i].getX();
-            if (px < midPointX) {
-                leftY[leftIndex++] = pointsY[i];
-            }
-            else if (px > midPointX) {
-                rightY[rightIndex++] = pointsY[i];
-            }
-            else {
-                if (tiesUsed < tiesForLeft) {
-                    leftY[leftIndex++] = pointsY[i];
-                    tiesUsed++;
-                }
-                else {
-                    rightY[rightIndex++] = pointsY[i];
-                }
+        leftTask.fork(); //Schedules to run the left half asynchronous "run if there's an available one"
+        SpeedFaster.WorkerResult right = rightTask.compute(); //Compute right half on the current thread in parallel
+        SpeedFaster.WorkerResult left = leftTask.join(); //Waits for left half to finish to store the result
+
+        //Calculates the best distance found on either respective side
+        SpeedFaster.WorkerResult bestDistance = left.distance < right.distance ? left : right;
+        double delta = bestDistance.distance;
+
+        //Build distance strip
+        for (Point point : pointsY) {
+            if (Math.abs(point.getX() - midP.getX()) < delta) {
+                distanceStrip.add(point);
             }
         }
 
-        WorkerResult left;
-        WorkerResult right;
-
-        if (n > SEQUENTIAL_THRESHOLD) {
-            ClosestPairTask leftTask = new ClosestPairTask(pointsX, leftY, low, mid);
-            ClosestPairTask rightTask = new ClosestPairTask(pointsX, rightY, mid, high);
-            leftTask.fork();
-            right = rightTask.compute();
-            left = leftTask.join();
-        }
-        else {
-            left = closestPairPoints(pointsX, leftY, low, mid);
-            right =  closestPairPoints(pointsX, rightY, mid, high);
-        }
-
-        WorkerResult best = left.distance < right.distance ? left : right;
-        double delta = best.distance;
-        double deltaSquared = delta * delta;
-
-        Point[] strip = new Point[pointsY.length];
-        int stripSize = 0;
-        for (int i = 0; i < pointsY.length; i++) {
-            double dx =  pointsY[i].getX() - midPointX;
-            if (dx * dx < deltaSquared) {
-                strip[stripSize++] = pointsY[i];
-            }
-        }
-
-        WorkerResult stripResult = stripBest(strip, stripSize, delta);
-        return stripResult.distance < best.distance ? stripResult : best;
+        //Stores the best strip result from the sub halfs and returns the result if there's a distance smaller than the best distance
+        SpeedFaster.WorkerResult stripResult = stripBest(distanceStrip, delta);
+        return stripResult.distance < bestDistance.distance ? stripResult : bestDistance;
 
     }
 
-    static class ClosestPairTask extends RecursiveTask<WorkerResult>{
+    static class ClosestPairTask extends RecursiveTask<SpeedFaster.WorkerResult> {
         //Create a list to sort the points by X and Y for the subproblem
-        Point[] pointsX;
-        Point[] pointsY;
-        int low;
-        int high;
+        List<Point> pointsX;
+        List<Point> pointsY;
 
         //Constructor for information storing
-        ClosestPairTask(Point[] pointsX, Point[] pointsY, int low, int high){
+        ClosestPairTask(List<Point> pointsX, List<Point> pointsY) {
             this.pointsX = pointsX;
             this.pointsY = pointsY;
-            this.low = low;
-            this.high = high;
         }
 
         //Call the ForkJoinPool to handle the parallelization of the recursion
         @Override
-        protected WorkerResult compute(){
-            return closestPairPoints(pointsX, pointsY, low, high);
+        protected SpeedFaster.WorkerResult compute() {
+            return closestPairPoints(pointsX, pointsY);
         }
     }
+
     /*
         This is the Brute Force method for when the sub halfs have 3 or less points to compute
         Not paralellized because it doesn't need to for a small sample size so it works perfectly for a base case of DnC recursion
      */
-    private static WorkerResult bruteF(Point[] points, int low, int high) {
+    private static SpeedFaster.WorkerResult bruteF(List<Point> points) {
         //Create and Store the smallest distance found and both closest pair points
-        double minDisSq = Double.MAX_VALUE;
+        double minDis = Double.MAX_VALUE;
         Point p1 = null;
         Point p2 = null;
 
         //Compare every pair of points in the sub half
-        for (int i = low; i < high; i++) {
-            for (int j = i + 1; j < high; j++) {
+        for (int i = 0; i < points.size(); i++) {
+            for (int j = i + 1; j < points.size(); j++) {
                 //Get the distance between the points
-                double dSq = Math.pow(distance(points[i], points[j]), 2);
+                double d = distance(points.get(i), points.get(j));
                 //Update the minimum if found pair is closer than last
-                if (dSq < minDisSq) {
-                    minDisSq = dSq;
-                    p1 = points[i];
-                    p2 = points[j];
+                if (d < minDis) {
+                    minDis = d;
+                    p1 = points.get(i);
+                    p2 = points.get(j);
                 }
             }
         }
         //Return the closest pair found in the sub half
-        return new WorkerResult(Math.sqrt(minDisSq), p1, p2);
+        return new SpeedFaster.WorkerResult(minDis, p1, p2);
     }
 
     /*
@@ -202,33 +178,35 @@ public class FriendsFinder {
         that might be closer than previously found.
         The only has the points that their x from the midpoint is less than delta and then sorted by Y to search the distances of 7 neighbors at max.
      */
-    private static WorkerResult stripBest(Point[] strip, int size, double delta) {
+    private static SpeedFaster.WorkerResult stripBest(List<Point> strip, double delta) {
         double minDis = delta; //Store the best distance from the left and right halves
         Point p1 = null;
         Point p2 = null;
-
+        strip.sort(compareY);
 
         //For each point found in the strip, compare with the y distance less than the stored minimum to reduce comparisons
-        for (int i = 0; i < size; i++) {
-            for (int j = i + 1; j < size && (strip[j].getY() - strip[i].getY()) < minDis; j++) {
+        for (int i = 0; i < strip.size(); i++) {
+            for (int j = i + 1; j < strip.size() && (strip.get(j).getY() - strip.get(i).getY()) < minDis; j++) {
                 //Store the distance between the two points
-                double dis = distance(strip[i], strip[j]);
+                double dis = distance(strip.get(i), strip.get(j));
                 //Update this minimum if the strip pair is closer than the minimum
                 if (dis < minDis) {
                     minDis = dis;
-                    p1 = strip[i];
-                    p2 = strip[j];
+                    p1 = strip.get(i);
+                    p2 = strip.get(j);
                 }
             }
         }
 
         //If there was no pair found, return the original delta
-        if (p1 == null){
-            return new WorkerResult(delta, null, null);
+        if (p1 == null) {
+            return new SpeedFaster.WorkerResult(delta, null, null);
         }
 
         //Else, return the new closest pair
-        return  new WorkerResult(minDis, p1, p2);
+        return new SpeedFaster.WorkerResult(minDis, p1, p2);
+
+
     }
 
 
