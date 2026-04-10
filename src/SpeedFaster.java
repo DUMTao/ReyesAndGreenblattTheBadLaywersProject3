@@ -2,10 +2,12 @@ import java.util.*;
 import java.awt.Point;
 import java.util.concurrent.*;
 
-public class FriendsFinder {
+public class SpeedFaster {
+
     /**
      * Returns the authors' names.
-     * @return  The names of the authors of this file.
+     *
+     * @return The names of the authors of this file.
      */
     public static String getAuthors() {
         return "Kamil Reyes and Matt Greenblatt";
@@ -13,14 +15,14 @@ public class FriendsFinder {
 
 
     //1. Failed 4 Million 78/100
-    public static List<Point> nearestFriends(List<Point> points){
+    public static List<Point> nearestFriends(List<Point> points) {
         //Creating the lists for the result of nearest friends and the points
         List<Point> nearestFriends = new ArrayList<>();
         List<Point> pointsX = new ArrayList<>(points);
         List<Point> pointsY = new ArrayList<>(points);
 
         //Base case: If there's no points or there's only 2 then the distance is the min by default
-        if (points == null || points.size() < 2){
+        if (points == null || points.size() < 2) {
             return nearestFriends;
         }
 
@@ -56,7 +58,7 @@ public class FriendsFinder {
 
     //Regular distance formula
     public static double distance(Point p1, Point p2) {
-        double d = Math.sqrt(Math.pow((p1.getX()-p2.getX()), 2) + Math.pow((p1.getY()-p2.getY()), 2));
+        double d = Math.sqrt(Math.pow((p1.getX() - p2.getX()), 2) + Math.pow((p1.getY() - p2.getY()), 2));
         return d;
     }
 
@@ -73,14 +75,14 @@ public class FriendsFinder {
         }
     }
 
-    private static WorkerResult closestPairPoints(List<Point> pointsX, List<Point> pointsY){
+    private static WorkerResult closestPairPoints(List<Point> pointsX, List<Point> pointsY) {
         List<Point> leftYPoints = new ArrayList<>();
         List<Point> rightYPoints = new ArrayList<>();
         List<Point> distanceStrip = new ArrayList<>();
         int n = pointsX.size(); //Get how many points are within the x list
 
         //If there's less than three nodes just brute force
-        if (n <= 3){
+        if (n <= 3) {
             return bruteF(pointsX);
         }
 
@@ -89,16 +91,15 @@ public class FriendsFinder {
         Point midP = pointsX.get(mid);
 
         //Separate and Create the lists of the x points on the left and right sides based on the midpoint
-        List<Point> leftXPoints = pointsX.subList(0,  mid);
+        List<Point> leftXPoints = pointsX.subList(0, mid);
         List<Point> rightXPoints = pointsX.subList(mid, n);
 
         //Create hashset for the points at X for faster return of information and build the Y points life
         Set<Point> leftSet = new HashSet<>(leftXPoints);
-        for (Point point : pointsY){
-            if (leftSet.contains(point)){
+        for (Point point : pointsY) {
+            if (leftSet.contains(point)) {
                 leftYPoints.add(point);
-            }
-            else {
+            } else {
                 rightYPoints.add(point);
             }
         }
@@ -116,8 +117,8 @@ public class FriendsFinder {
         double delta = bestDistance.distance;
 
         //Build distance strip
-        for (Point point : pointsY){
-            if (Math.abs(point.getX() - midP.getX()) < delta){
+        for (Point point : pointsY) {
+            if (Math.abs(point.getX() - midP.getX()) < delta) {
                 distanceStrip.add(point);
             }
         }
@@ -128,23 +129,24 @@ public class FriendsFinder {
 
     }
 
-    static class ClosestPairTask extends RecursiveTask<WorkerResult>{
+    static class ClosestPairTask extends RecursiveTask<WorkerResult> {
         //Create a list to sort the points by X and Y for the subproblem
         List<Point> pointsX;
         List<Point> pointsY;
 
         //Constructor for information storing
-        ClosestPairTask(List<Point> pointsX, List<Point> pointsY){
+        ClosestPairTask(List<Point> pointsX, List<Point> pointsY) {
             this.pointsX = pointsX;
             this.pointsY = pointsY;
         }
 
         //Call the ForkJoinPool to handle the parallelization of the recursion
         @Override
-        protected WorkerResult compute(){
+        protected WorkerResult compute() {
             return closestPairPoints(pointsX, pointsY);
         }
     }
+
     /*
         This is the Brute Force method for when the sub halfs have 3 or less points to compute
         Not paralellized because it doesn't need to for a small sample size so it works perfectly for a base case of DnC recursion
@@ -198,109 +200,14 @@ public class FriendsFinder {
         }
 
         //If there was no pair found, return the original delta
-        if (p1 == null){
+        if (p1 == null) {
             return new WorkerResult(delta, null, null);
         }
 
         //Else, return the new closest pair
-        return  new WorkerResult(minDis, p1, p2);
+        return new WorkerResult(minDis, p1, p2);
+
+
     }
-
-
-
-    /* Failed @ 200,000 68/100
-    List<Point> nearestFriends = new ArrayList<>();
-        List<Future<WorkerResult>> futures = new ArrayList<>();
-        //result.add(points.get(0));
-        //result.add(points.get(1));
-        if (points == null || points.size() < 2){
-            return nearestFriends;
-        }
-
-        int n = points.size();
-        int numThreads = 16;
-        int chunkSize = (n + numThreads - 1) / numThreads;
-
-        double minDistance = distance(points.get(0), points.get(1));
-        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-
-        for (int t = 0; t < numThreads; t++){
-            int start = t * chunkSize;
-            int end = Math.min(start + chunkSize, n - 1);
-
-            Future<WorkerResult> future = executor.submit(() -> {
-                    double localMin = Double.MAX_VALUE;
-                    Point best1 = null;
-                    Point best2 = null;
-
-                    for (int i = start; i < end; i++){
-                        for (int j = i + 1; j < n; j++){
-                            double d = distance(points.get(i), points.get(j));
-
-                            if (d < localMin){
-                                localMin = d;
-                                best1 = points.get(i);
-                                best2 = points.get(j);
-                            }
-                        }
-                    }
-
-                    return new WorkerResult(localMin, best1, best2);
-            });
-
-            futures.add(future);
-        }
-
-
-        double minDist = Double.MAX_VALUE;
-        Point final1  = null;
-        Point final2 = null;
-
-        for (Future<WorkerResult> future : futures){
-            WorkerResult r = null; //Waits if necessary
-            try {
-                r = future.get();
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            } catch (ExecutionException e) {
-                throw new RuntimeException(e);
-            }
-
-            if (r.distance < minDist){
-                 minDist = r.distance;
-                 final1 = r.p1;
-                 final2 = r.p2;
-            }
-        }
-
-        executor.shutdown();
-
-        nearestFriends.add(final1);
-        nearestFriends.add(final2);
-        return nearestFriends;
-     */
-
-    //Brute Force version that failed/timed out at size 40,000 62/100
-    /*
-    public static List<Point> nearestFriends(List<Point> points) {
-        List<Point> result = new ArrayList<>();
-        result.add(points.get(0));
-        result.add(points.get(1));
-        double minDistance = distance(points.get(0), points.get(1));
-        for (int i = 0; i < points.size() - 1; i++) {
-            for (int j = i + 1; j < points.size(); j++) {
-                double distance = distance(points.get(i), points.get(j));
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    result.clear();
-                    result.add(points.get(i));
-                    result.add(points.get(j));
-                }
-            }
-        }
-
-        return result;
-    }
-     */
 
 }
